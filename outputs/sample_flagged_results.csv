@@ -1,0 +1,21 @@
+nameOrig,nameDest,amount,risk_level,rule_flags,ml_anomaly_score,isFraud
+C1129255752,C105815393,299940.02,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4783430638943465,0
+C203306495,C1670236553,132800.63,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4231738413855064,0
+C1241979647,C538246534,238788.16,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.448587496431076,0
+C1592124434,C1162812870,12396.75,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4450069255798618,0
+C1786900420,C1746495091,46998.41,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4284656271721135,0
+C372348487,C719506687,327289.16,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4762932928936646,0
+C240189148,C169040072,9949.77,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.44543708902514995,0
+C545798689,C1826344570,152697.68,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4290055330597149,0
+C1839837672,C1722204729,940065.63,HIGH,['Sender transacted despite zero/insufficient balance'],0.6159497140512191,0
+C1957294762,C1742009350,264566.24,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.46308502410643115,0
+C1333503531,C789014007,3997.07,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4488168300650773,0
+C1697672732,C1139242102,59385.33,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4257315727889986,0
+C13314869,C803129742,190339.29,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.433280995654356,0
+C1149659100,C1224175365,564411.35,HIGH,['Sender transacted despite zero/insufficient balance'],0.624558811032127,0
+C413802344,C1144691613,250619.3,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.45822947114398666,0
+C2084202552,C1701107975,129742.11,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4214012150558209,0
+C1792344170,C1986852398,110913.99,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4219496345284237,0
+C1644596599,C949544159,127920.94,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.42854945742614736,0
+C2077945721,C1368358721,11491.26,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.4449576977892839,0
+C1500218819,C1560177503,176843.37,MEDIUM,['Sender transacted despite zero/insufficient balance'],0.42942494478180254,0

@@ -111,7 +111,9 @@ if __name__ == "__main__":
     test_queries = [
         "Analyse this dataset for suspicious activity",
         "Show me anomalous transactions the rules might miss",
+        "Is customer ID C1889568678 suspicious?",
         "Is customer ID C67886069 suspicious?",
+        "Is customer ID C999000001 suspicious?",
         "Which customers made 10+ transactions under $10,000?",
         "Find structuring patterns in the last 30 days",
     ]

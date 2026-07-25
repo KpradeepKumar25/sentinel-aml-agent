@@ -250,6 +250,7 @@ EXAMPLE_QUERIES = [
     "Show anomalous transactions the rules might miss",
     "Find structuring patterns in the last 30 days",
     "Which customers made 10+ transactions under $10,000?",
+    "Is customer ID C999000001 suspicious?",
     "Is customer ID C67886069 suspicious?",
 ]
 

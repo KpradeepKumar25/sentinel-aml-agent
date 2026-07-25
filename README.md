@@ -32,9 +32,9 @@ The agent shows its own reasoning trail, so a reviewer can see _what it decided 
 
 > **Detection method per query type, and why:** broad-analysis and structuring queries use **rule-based detection only** — each has a validated rule signature (full-balance-drain: 100% precision / 97.5% recall; structuring: near-threshold amount + repeat-sender velocity) that's cheap, explainable, and outperforms adding the ML model or a weaker balance-inconsistency rule, both measured to collectively drop precision to ~1.7% for only a marginal recall gain. The **ML-anomaly query is where the Isolation Forest earns its place** — reserved for exactly the case rules can't cover: catching subtler, unknown patterns without a known signature. This is a deliberate precision/recall tradeoff per query type, not a blanket "always run everything" pipeline.
 
-> **Note on the aggregation query:** PaySim customer IDs are largely single-use (max 3 transactions per sender), so multi-transaction structuring patterns don't naturally occur in this dataset. Our aggregation tool correctly returns 0 for this pattern — verified against raw data distribution.
+> **Note on the aggregation query:** PaySim customer IDs are largely single-use (max 3 transactions per sender across the full 6.3M-row dataset), so multi-transaction structuring patterns don't naturally occur in this data — verified against raw data distribution. On unmodified PaySim data this query correctly returns 0. On the demo sample specifically, it returns **12** — the disclosed synthetic structuring block (sender `C999000001`, see Dataset section) added to demonstrate the pathway genuinely fires when the pattern is present.
 
-> **Note on structuring detection scope:** the structuring query runs the true structuring rule only (near-$10,000 amount + repeat-sender velocity) — it excludes both unrelated balance-inconsistency flags and the general ML anomaly model, so every result it returns is honestly labeled as structuring rather than a generic anomaly score. Because repeat senders are rare in this dataset (see above), this query will usually return few or no results — that's expected behavior, not a bug.
+> **Note on structuring detection scope:** the structuring query runs the true structuring rule only (near-$10,000 amount + repeat-sender velocity) — it excludes both unrelated balance-inconsistency flags and the general ML anomaly model, so every result it returns is honestly labeled as structuring rather than a generic anomaly score. On unmodified PaySim data this returns few or no results, since repeat senders are structurally rare (see above) — that's expected behavior, not a bug. The demo sample includes a disclosed synthetic structuring block for exactly this reason: to prove the rule works correctly when its target pattern actually exists, rather than asking a reviewer to trust an always-empty result.
 
 ---
 
@@ -102,7 +102,8 @@ The agent shows its own reasoning trail, so a reviewer can see _what it decided 
 - **Why:** Simulates mobile money transactions with labeled fraudulent activity, closely mirroring structuring/smurfing-style behavior.
 - **License:** Open/public dataset, no proprietary or confidential data used.
 - **Schema summary:** step (time), type (transaction type), amount, nameOrig, oldbalanceOrg, newbalanceOrig, nameDest, oldbalanceDest, newbalanceDest, isFraud.
-- Any synthetic data generated beyond this dataset (e.g. to simulate structuring patterns) is documented in `/data/synthetic_notes.md` with schema, assumptions, and generation logic.
+
+> **Disclosed synthetic data — structuring demo block:** to demonstrate structuring detection — a pattern requiring a repeat sender, which doesn't naturally occur in PaySim's single-use customer IDs (verified: max 3 transactions per sender across the full 6.3M-row dataset) — we added 12 clearly-labeled synthetic transactions (sender `C999000001`) simulating classic structuring behavior (multiple transfers just under the $10,000 reporting threshold, spread across the last ~20 simulated days). Generation logic: [`add_synthetic_structuring_demo.py`](add_synthetic_structuring_demo.py). These synthetic rows are intentionally **NOT** labeled as fraud (`isFraud=0`) in the dataset, since structuring is designed to evade naive fraud detection — demonstrating that our rule catches this pattern independent of ground-truth labels, closer to how real-world detection has to work (no answer key in production). This is disclosed, rule-compliant use of synthetic data per the hackathon's own rules on synthetic data usage. Verified end-to-end: the structuring query flags all 12 synthetic rows at HIGH risk, the aggregation query correctly groups them by sender, and the single-entity lookup for `C999000001` correctly isolates just these 12 transactions.
 
 ---
 
@@ -139,8 +140,9 @@ Once running, type a natural language query into the interface. Recommended demo
 > "Show me anomalous transactions the rules might miss"   # ML model's incremental value over the validated rule
 > "Is customer ID C1889568678 suspicious?"                # single-entity lookup, positive hit -- HIGH risk, full-balance-drain rule
 > "Is customer ID C67886069 suspicious?"                  # single-entity lookup, negative -- clean history, no false positive
-> "Which customers made 10+ transactions under $10,000?"  # direct aggregation -- skips ML entirely
-> "Find structuring patterns in the last 30 days"         # targeted structuring rule only -- see note below
+> "Is customer ID C999000001 suspicious?"                 # single-entity lookup on the disclosed synthetic structuring sender -- 12/12 correctly flagged
+> "Which customers made 10+ transactions under $10,000?"  # direct aggregation -- skips ML entirely, catches the synthetic block (12 rows)
+> "Find structuring patterns in the last 30 days"         # targeted structuring rule only -- catches the synthetic block (12 rows), see notes below
 ```
 
 The agent responds with:
@@ -151,7 +153,7 @@ The agent responds with:
 4. **Suggested SAR draft** — auto-generated summary formatted like a Suspicious Activity Report
 5. **Recommended action** — monitor / review / report
 
-> **Why lead with the broad-analysis query:** it's the one with the validated rule-based pipeline and visible output — real flagged transactions, risk levels, and SAR drafts (8,008 flags at 100% precision / 97.5% recall against ground-truth fraud labels). Follow it with the ML-anomaly query to show the model's incremental value — what it catches beyond the rule. The single-entity, aggregation, and structuring queries are just as correct, but two of them return **0 results on this dataset by design** (see notes above) — that's the agent refusing to manufacture false positives, not a gap. Lead the demo with results, then use the "honest zero" queries to show the explainability story: an agent that tells you a pattern doesn't exist instead of dressing up unrelated anomalies to produce a number.
+> **Why lead with the broad-analysis query:** it's the one with the validated rule-based pipeline and visible output — real flagged transactions, risk levels, and SAR drafts (8,008 flags at 100% precision / 97.5% recall against ground-truth fraud labels). Follow it with the ML-anomaly query to show the model's incremental value — what it catches beyond the rule. The aggregation and structuring queries now also return real results (12 each) thanks to the disclosed synthetic structuring block — use these to show the detection pathway genuinely fires, not just that it's silent. On unmodified PaySim data (no synthetic block), these same queries correctly return 0 — that's the agent refusing to manufacture false positives on data that structurally can't contain the pattern, not a gap. Either way it's an honest number: real detection when the pattern exists, an honest zero when it doesn't.
 
 ---
 

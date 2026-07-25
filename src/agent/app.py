@@ -51,27 +51,41 @@ RISK_COLORS = {"HIGH": "#EF4444", "MEDIUM": "#F59E0B", "LOW": "#3B82F6", "NONE":
 
 
 def _bar_chart(df, x_field, y_field, x_title, y_title, sort_order, color=None,
-                color_field=None, color_scale=None, height=180):
+                color_field=None, color_scale=None, height=180, log_scale=False):
     """Thin rounded bars on a transparent background, styled to match the
-    app's dark theme. Tooltip-on-hover comes for free via Altair/Vega-Lite."""
-    encoding = dict(
-        x=alt.X(f"{x_field}:N", title=x_title, sort=sort_order,
-                axis=alt.Axis(labelColor=CHART_AXIS_COLOR, titleColor=CHART_AXIS_COLOR,
-                               domain=False, ticks=False, labelAngle=0)),
-        y=alt.Y(f"{y_field}:Q", title=y_title,
-                axis=alt.Axis(labelColor=CHART_AXIS_COLOR, titleColor=CHART_AXIS_COLOR,
-                               gridColor=CHART_GRID_COLOR, domain=False, ticks=False)),
-        tooltip=[alt.Tooltip(f"{x_field}:N", title=x_title), alt.Tooltip(f"{y_field}:Q", title=y_title, format=",")],
-    )
+    app's dark theme. Tooltip-on-hover comes for free via Altair/Vega-Lite.
+
+    log_scale=True switches the y-axis to symlog (handles zero, unlike a
+    plain log scale) -- use it when categories can differ by orders of
+    magnitude (e.g. 8,008 HIGH vs 12 MEDIUM), where a linear scale makes
+    the smaller bar's real, non-zero count visually indistinguishable from
+    zero. Count labels are always drawn above each bar regardless of scale,
+    so the exact number is legible even when the bar itself is short.
+    """
+    y_scale = alt.Scale(type="symlog") if log_scale else alt.Undefined
+    x_enc = alt.X(f"{x_field}:N", title=x_title, sort=sort_order,
+                  axis=alt.Axis(labelColor=CHART_AXIS_COLOR, titleColor=CHART_AXIS_COLOR,
+                                 domain=False, ticks=False, labelAngle=0))
+    y_enc = alt.Y(f"{y_field}:Q", title=y_title, scale=y_scale,
+                  axis=alt.Axis(labelColor=CHART_AXIS_COLOR, titleColor=CHART_AXIS_COLOR,
+                                 gridColor=CHART_GRID_COLOR, domain=False, ticks=False))
+    tooltip = [alt.Tooltip(f"{x_field}:N", title=x_title), alt.Tooltip(f"{y_field}:Q", title=y_title, format=",")]
+
     if color_field and color_scale:
-        encoding["color"] = alt.Color(f"{color_field}:N", scale=color_scale, legend=None)
+        color_enc = alt.Color(f"{color_field}:N", scale=color_scale, legend=None)
     else:
-        encoding["color"] = alt.value(color or "#2DD4BF")
+        color_enc = alt.value(color or "#2DD4BF")
+
+    base = alt.Chart(df)
+    bars = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=34).encode(
+        x=x_enc, y=y_enc, color=color_enc, tooltip=tooltip,
+    )
+    labels = base.mark_text(dy=-8, baseline="bottom", color=CHART_AXIS_COLOR, fontSize=11).encode(
+        x=x_enc, y=y_enc, text=alt.Text(f"{y_field}:Q", format=","),
+    )
 
     return (
-        alt.Chart(df)
-        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=34)
-        .encode(**encoding)
+        alt.layer(bars, labels)
         .properties(height=height, background="transparent")
         .configure_view(strokeWidth=0)
     )
@@ -123,14 +137,26 @@ section[data-testid="stSidebar"] {
     border-right: 1px solid var(--border-subtle);
 }
 
+/* Entrance animation -- subtle, one-shot, not a gimmick */
+@keyframes sentinelFadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 /* Hero header */
+.sentinel-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0 18px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 24px;
+    animation: sentinelFadeUp 0.5s ease-out;
+}
 .sentinel-hero {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 6px 0 18px 0;
-    border-bottom: 1px solid var(--border-subtle);
-    margin-bottom: 24px;
 }
 .sentinel-eye {
     width: 42px; height: 42px;
@@ -139,6 +165,11 @@ section[data-testid="stSidebar"] {
     display: flex; align-items: center; justify-content: center;
     font-size: 20px;
     box-shadow: 0 0 24px rgba(45, 212, 191, 0.35);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.sentinel-eye:hover {
+    transform: scale(1.08) rotate(-4deg);
+    box-shadow: 0 0 32px rgba(45, 212, 191, 0.55);
 }
 .sentinel-title {
     font-size: 26px; font-weight: 700; letter-spacing: -0.5px;
@@ -148,6 +179,19 @@ section[data-testid="stSidebar"] {
     font-size: 13px; color: var(--text-secondary); margin: 0;
     letter-spacing: 0.3px; text-transform: uppercase;
 }
+.team-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; font-weight: 600; color: var(--accent);
+    background: rgba(45, 212, 191, 0.08);
+    border: 1px solid rgba(45, 212, 191, 0.3);
+    padding: 6px 14px; border-radius: 20px;
+    letter-spacing: 0.3px;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.team-badge:hover {
+    background: rgba(45, 212, 191, 0.16);
+    box-shadow: 0 0 16px rgba(45, 212, 191, 0.25);
+}
 
 /* Metric cards */
 .metric-card {
@@ -156,6 +200,13 @@ section[data-testid="stSidebar"] {
     border-radius: 12px;
     padding: 16px 18px;
     height: 100%;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    animation: sentinelFadeUp 0.5s ease-out;
+}
+.metric-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--accent-dim);
+    box-shadow: 0 6px 20px rgba(45, 212, 191, 0.12);
 }
 .metric-label {
     font-size: 11px; color: var(--text-secondary);
@@ -185,6 +236,13 @@ section[data-testid="stSidebar"] {
     padding-left: 16px;
     margin-left: 10px;
     position: relative;
+    transition: padding-left 0.2s ease;
+}
+.pipeline-step:hover {
+    padding-left: 20px;
+}
+.pipeline-step:hover .pipeline-step-name {
+    color: var(--accent);
 }
 .pipeline-step::before {
     content: '';
@@ -194,10 +252,15 @@ section[data-testid="stSidebar"] {
     border-radius: 50%;
     background: var(--accent);
     box-shadow: 0 0 10px rgba(45, 212, 191, 0.6);
+    transition: box-shadow 0.2s ease;
+}
+.pipeline-step:hover::before {
+    box-shadow: 0 0 14px rgba(45, 212, 191, 0.9);
 }
 .pipeline-step-name {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 600; color: var(--text-primary); font-size: 14px;
+    transition: color 0.2s ease;
 }
 .pipeline-step-reason {
     color: var(--text-secondary); font-size: 13px; margin-top: 2px;
@@ -224,6 +287,11 @@ section[data-testid="stSidebar"] {
     padding: 3px 12px; border-radius: 20px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+    transition: filter 0.2s ease, transform 0.2s ease;
+}
+.risk-badge:hover {
+    filter: brightness(1.25);
+    transform: scale(1.06);
 }
 .risk-HIGH { background: rgba(239,68,68,0.15); color: var(--risk-high); border: 1px solid rgba(239,68,68,0.4); }
 .risk-MEDIUM { background: rgba(245,158,11,0.15); color: var(--risk-medium); border: 1px solid rgba(245,158,11,0.4); }
@@ -238,6 +306,13 @@ section[data-testid="stSidebar"] {
     border-radius: 12px;
     padding: 16px 18px;
     margin-bottom: 12px;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    animation: sentinelFadeUp 0.4s ease-out;
+}
+.result-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-dim);
+    box-shadow: 0 6px 20px rgba(45, 212, 191, 0.1);
 }
 .result-flow {
     font-family: 'JetBrains Mono', monospace;
@@ -266,10 +341,16 @@ section[data-testid="stSidebar"] {
     border: none;
     font-weight: 600;
     border-radius: 8px;
+    transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
 }
 .stButton>button:hover {
     background: var(--accent-dim);
     color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(45, 212, 191, 0.35);
+}
+.stButton>button:active {
+    transform: translateY(0px);
 }
 
 .example-query-btn button {
@@ -280,6 +361,27 @@ section[data-testid="stSidebar"] {
     font-size: 12px !important;
     border: 1px solid var(--border-subtle) !important;
 }
+
+/* Focus glow on inputs -- makes keyboard/click focus feel alive */
+.stTextInput input:focus, div[data-baseweb="select"]:focus-within > div {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 1px var(--accent) !important;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+/* Footer */
+.app-footer {
+    margin-top: 48px;
+    padding: 20px 0 12px 0;
+    border-top: 1px solid var(--border-subtle);
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.8;
+}
+.app-footer b { color: var(--text-primary); }
+.app-footer a { color: var(--accent); text-decoration: none; transition: color 0.2s ease; }
+.app-footer a:hover { color: var(--accent-dim); text-decoration: underline; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -287,12 +389,15 @@ section[data-testid="stSidebar"] {
 # HERO HEADER
 # ============================================================
 st.markdown("""
-<div class="sentinel-hero">
-    <div class="sentinel-eye">&#128065;</div>
-    <div>
-        <p class="sentinel-title">SentinelAML</p>
-        <p class="sentinel-subtitle">Adaptive AI Agent &middot; Suspicious Activity Detection</p>
+<div class="sentinel-topbar">
+    <div class="sentinel-hero">
+        <div class="sentinel-eye">&#128065;</div>
+        <div>
+            <p class="sentinel-title">SentinelAML</p>
+            <p class="sentinel-subtitle">Adaptive AI Agent &middot; Suspicious Activity Detection</p>
+        </div>
     </div>
+    <div class="team-badge">Built by White Hats</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -467,6 +572,7 @@ if "last_result" in st.session_state:
                 r_df, "risk_level", "count", "Risk level", "Count", r_order,
                 color_field="risk_level",
                 color_scale=alt.Scale(domain=list(RISK_COLORS.keys()), range=list(RISK_COLORS.values())),
+                log_scale=True,
             ),
             use_container_width=True,
         )
@@ -547,3 +653,15 @@ else:
         <div style="font-size: 15px;">Enter a query and click <b>Run agent</b> to see the adaptive execution plan and results.</div>
     </div>
     """, unsafe_allow_html=True)
+
+# ============================================================
+# FOOTER
+# ============================================================
+st.markdown("""
+<div class="app-footer">
+    &copy; 2026 SentinelAML &mdash; Built by <b>White Hats</b><br>
+    K Pradeep Kumar (<a href="mailto:kumarkpradeep2005@gmail.com">kumarkpradeep2005@gmail.com</a>)
+    &middot;
+    P Vahran (<a href="mailto:vahranp@gmail.com">vahranp@gmail.com</a>)
+</div>
+""", unsafe_allow_html=True)

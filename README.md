@@ -105,7 +105,7 @@ The agent shows its own reasoning trail, so a reviewer can see _what it decided 
 
 > **Filter coverage — a dataset limitation, not a gap:** PaySim's schema has no `segment` or `country` fields, so the intent parser doesn't extract those filters — there's nothing in the data to filter on. Date range, transaction type, amount threshold, and entity ID filters are all supported and demonstrated across the example queries above.
 
-> **Disclosed synthetic data — structuring demo block:** to demonstrate structuring detection — a pattern requiring a repeat sender, which doesn't naturally occur in PaySim's single-use customer IDs (verified: max 3 transactions per sender across the full 6.3M-row dataset) — we added 12 clearly-labeled synthetic transactions (sender `C999000001`) simulating classic structuring behavior (multiple transfers just under the $10,000 reporting threshold, spread across the last ~20 simulated days). Generation logic: [`add_synthetic_structuring_demo.py`](add_synthetic_structuring_demo.py). These synthetic rows are intentionally **NOT** labeled as fraud (`isFraud=0`) in the dataset, since structuring is designed to evade naive fraud detection — demonstrating that our rule catches this pattern independent of ground-truth labels, closer to how real-world detection has to work (no answer key in production). This is disclosed, rule-compliant use of synthetic data per the hackathon's own rules on synthetic data usage. Verified end-to-end: the structuring query flags all 12 synthetic rows at HIGH risk, the aggregation query correctly groups them by sender, and the single-entity lookup for `C999000001` correctly isolates just these 12 transactions.
+> **Disclosed synthetic data — structuring demo block:** to demonstrate structuring detection — a pattern requiring a repeat sender, which doesn't naturally occur in PaySim's single-use customer IDs (verified: max 3 transactions per sender across the full 6.3M-row dataset) — we added 12 clearly-labeled synthetic transactions (sender `C999000001`) simulating classic structuring behavior (multiple transfers just under the $10,000 reporting threshold, spread across the last ~20 simulated days). Generation logic: [`add_synthetic_structuring_demo.py`](add_synthetic_structuring_demo.py). These synthetic rows are intentionally **NOT** labeled as fraud (`isFraud=0`) in the dataset, since structuring is designed to evade naive fraud detection — demonstrating that our rule catches this pattern independent of ground-truth labels, closer to how real-world detection has to work (no answer key in production). This is disclosed, rule-compliant use of synthetic data per the hackathon's own rules on synthetic data usage. Verified end-to-end: the structuring query flags all 12 synthetic rows at **MEDIUM** risk (not HIGH — see the note below on why the two rule types get different tiers), the aggregation query correctly groups them by sender, and the single-entity lookup for `C999000001` correctly isolates just these 12 transactions.
 
 ---
 
@@ -185,6 +185,10 @@ The agent responds with:
 
 > **Why lead with the broad-analysis query:** it's the one with the validated rule-based pipeline and visible output — real flagged transactions, risk levels, and SAR drafts. On the demo sample it flags **8,020** transactions total: **8,008** via the full-balance-drain rule (100% precision / 97.5% recall against `isFraud`) plus **12** via the structuring rule — the same disclosed synthetic block (sender `C999000001`) also picked up here because `rule_based_flag()` checks the structuring condition for every query, not just ones that pass `pattern="structuring"`. That's a stronger explainability story, not a discrepancy: broad-analysis demonstrably catches both drain-signature fraud *and* structuring, including a case intentionally **not** labeled as fraud in `isFraud` (structuring is designed to evade naive fraud labels — see Dataset section). Report precision per rule, not as one blended number: the drain rule's 100%/97.5% holds against `isFraud` for its own 8,008; the structuring rule's 12/12 are validated against the known ground truth that we constructed them as structuring, not against `isFraud`, which was never meant to capture that pattern. On unmodified PaySim data (no synthetic block), broad-analysis returns exactly 8,008 and the aggregation/structuring queries correctly return 0 — that's the agent refusing to manufacture false positives on data that structurally can't contain the pattern, not a gap.
 
+> **Risk tiers reflect rule confidence, not just "flagged or not":** the two rules feeding `rules_only` mode aren't equally validated, so they don't get the same tier. The drain rule (100% precision / 97.5% recall against `isFraud`) maps to **HIGH**. The structuring rule — only demonstrated on the disclosed synthetic block, never validated against real fraud labels — maps to **MEDIUM**, i.e. "flag for review" rather than "report." So the broad-analysis query's risk breakdown is genuinely mixed: **8,008 HIGH + 12 MEDIUM**, not one flat tier — the risk level is doing real work, not decoration.
+
+> **The ML-anomaly query's risk tiers, explained:** for `"Show me anomalous transactions the rules might miss"`, tiers come from ranking the model's `ml_anomaly_score` *within the flagged set itself* (not against the whole dataset — almost anything already flagged clears that low bar, which is why an earlier version of this put ~86% of flags in one bucket). Checked against `isFraud`: the model's own top 10% scores **67.5%** precision (114 rows) → **HIGH**; the next band scores **34%** (229 rows) → **MEDIUM**; the rest scores **~0.6%** (1,039 rows) → **LOW**. A real, validated three-way split, not an even/decorative one — most of what Isolation Forest flags here is genuinely low-confidence, and the tiers say so honestly.
+
 ---
 
 ## 📝 Suggested SAR Report Draft (Feature Highlight)
@@ -228,7 +232,10 @@ This mirrors how modern AML platforms use generative AI to automate case triage 
 
 ## 👥 Team
 
-`[Your names here]`  <!-- TODO: fill in before submission -->
+**White Hats**
+
+- K Pradeep Kumar — kumarkpradeep2005@gmail.com
+- P Vahran — vahranp@gmail.com
 
 ---
 

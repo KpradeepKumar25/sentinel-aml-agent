@@ -113,7 +113,7 @@ The agent shows its own reasoning trail, so a reviewer can see _what it decided 
 
 ```bash
 # 1. Clone the repo
-git clone <your-repo-url>
+git clone https://github.com/KpradeepKumar25/sentinel-aml-agent.git
 cd sentinel_aml_agent
 
 # 2. Create virtual environment
@@ -128,6 +128,36 @@ pip install -r requirements.txt
 cd src/agent
 streamlit run app.py
 ```
+
+---
+
+## ☁️ Deployment (Streamlit Community Cloud)
+
+The app is a standard Streamlit app and deploys as a free, public website with
+no code changes beyond what's already in this repo:
+
+1. Push this repo to GitHub (public or private).
+2. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+3. Click **New app**, pick this repo/branch, and set the main file path to
+   `src/agent/app.py`.
+4. *(Optional)* To enable the optional Groq LLM intent parser on the deployed
+   app, open **Settings → Secrets** and paste the two values from
+   [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example) with
+   your own key. Leave this step out entirely and the app runs exactly the
+   same, using the default local regex parser.
+5. Click **Deploy**. First boot installs `requirements.txt` and typically
+   takes 2-3 minutes; the bundled `data/raw/paysim_sample.csv` and pretrained
+   `src/models/*.pkl` are already committed, so no external downloads are
+   needed at runtime.
+
+`.streamlit/config.toml` pins the dark theme so the deployed app matches the
+local one, and `runtime.txt` pins the Python version to match what the
+bundled model was validated against.
+
+Any other host that runs a standard Python web app (Render, Railway, Hugging
+Face Spaces, Google Cloud Run) works too — the entry point is
+`streamlit run src/agent/app.py`, the dependency list is `requirements.txt`,
+and the two optional secrets are read from environment variables.
 
 ---
 

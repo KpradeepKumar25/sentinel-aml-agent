@@ -22,6 +22,19 @@ sys.path.insert(0, _THIS_DIR)
 sys.path.insert(0, os.path.join(_THIS_DIR, "..", "tools"))
 sys.path.insert(0, os.path.join(_THIS_DIR, "..", "utils"))
 
+# On Streamlit Community Cloud there is no .env file -- secrets are set via
+# the app's Settings > Secrets panel instead and surface through st.secrets.
+# executor.py only reads os.environ (via python-dotenv locally), so mirror
+# any matching secrets into the process env before importing it. This is a
+# no-op locally (no secrets.toml) and a no-op on the cloud unless the two
+# optional keys below were actually configured.
+try:
+    for _key in ("GROQ_API_KEY", "USE_LLM_PARSER"):
+        if _key in st.secrets:
+            os.environ[_key] = str(st.secrets[_key])
+except Exception:
+    pass
+
 from executor import run_agent
 
 

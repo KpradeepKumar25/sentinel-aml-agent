@@ -14,12 +14,18 @@ import sys
 import os
 import json
 from collections import Counter
+from dotenv import load_dotenv
 
 # Make src/tools and src/utils importable regardless of where this is run from
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_THIS_DIR, "..", "tools"))
 sys.path.insert(0, os.path.join(_THIS_DIR, "..", "utils"))
 sys.path.insert(0, _THIS_DIR)
+
+# Loads GROQ_API_KEY / USE_LLM_PARSER from .env at the project root, if
+# present. Safe to call even with no .env file (no-op in that case) and
+# never overwrites already-set shell environment variables.
+load_dotenv(os.path.join(_THIS_DIR, "..", "..", ".env"))
 
 from intent_parser import parse_query
 from planner import build_plan
@@ -31,13 +37,33 @@ import anomaly_detection
 import risk_classifier
 import explanation_engine
 
+USE_LLM_PARSER = os.environ.get("USE_LLM_PARSER", "false").lower() == "true"
+
+
+def get_intent(query: str):
+    """
+    Tries the optional LLM-based parser first if enabled, but ALWAYS falls
+    back to the verified, rule-based parser on any failure -- API key
+    missing, network error, timeout, malformed response, etc. This means
+    enabling USE_LLM_PARSER can never break the pipeline; worst case it
+    silently behaves exactly like the default.
+    """
+    if USE_LLM_PARSER:
+        try:
+            from llm_intent_parser import parse_query_llm
+            return parse_query_llm(query)
+        except Exception as e:
+            print(f"[LLM parser fallback] {e} -- using rule-based parser instead")
+            return parse_query(query)
+    return parse_query(query)
+
 
 def run_agent(query: str) -> dict:
     """
     Main entry point for the whole agent. This is what app.py (the
     Streamlit/CLI interface) calls.
     """
-    intent = parse_query(query)
+    intent = get_intent(query)
     plan = build_plan(intent)
 
     # Working state threaded through each step

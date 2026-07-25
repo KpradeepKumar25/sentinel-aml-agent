@@ -87,7 +87,7 @@ The agent shows its own reasoning trail, so a reviewer can see _what it decided 
 | Layer               | Tool                                                                                          |
 | ------------------- | ----------------------------------------------------------------------------------------------- |
 | Agent orchestration | Python — custom deterministic router (Intent Parser → Planner → Executor, no LangGraph)         |
-| Intent parsing      | Deterministic keyword/regex-based parser — **no LLM API call** (see Disclosed AI/Tool Usage)     |
+| Intent parsing      | Deterministic keyword/regex-based parser by default; optional Groq LLM parser with automatic fallback (see Disclosed AI/Tool Usage) |
 | Feature engineering | pandas, numpy                                                                                    |
 | Anomaly detection   | Rule-based (validated: full-balance-drain rule, 100% precision / 97.5% recall) + Isolation Forest ML, applied selectively per query type — hybrid architecture, not always both at once |
 | Visualization       | Altair (via Streamlit)                                                                           |
@@ -177,16 +177,22 @@ This mirrors how modern AML platforms use generative AI to automate case triage 
 
 ## 🤖 Disclosed AI/Tool Usage
 
-- **LLM API used:** None. Intent parsing is a local, deterministic keyword/regex-based
-  parser (`src/agent/intent_parser.py`) — no runtime LLM call is made anywhere in the
-  agent pipeline. This was a deliberate choice for speed, explainability, and zero
-  external-API dependency; the code documents an optional future upgrade path to an
-  LLM-based parser without changing the rest of the pipeline.
+- **LLM API used (optional, off by default):** intent parsing defaults to a local,
+  deterministic keyword/regex-based parser (`src/agent/intent_parser.py`) — no runtime
+  LLM call is made unless explicitly enabled. Setting `USE_LLM_PARSER=true` and a
+  `GROQ_API_KEY` (free tier, [console.groq.com](https://console.groq.com)) switches
+  intent parsing to `src/agent/llm_intent_parser.py`, which calls Groq's
+  `llama-3.1-8b-instant` model. This is strictly additive: on any failure (missing
+  key, network error, timeout, malformed response) it automatically falls back to the
+  verified regex parser with no crash and no behavior change — confirmed by testing
+  both an unset key and a deliberately invalid one. Verified end-to-end: with the LLM
+  parser enabled, all 7 example queries produced identical routing decisions
+  (`query_type`, `flagged_count`) to the regex parser.
 - **Agentic coding assistance used:** Claude Code (Anthropic) — used throughout
   development for implementation, debugging, precision/recall validation against the
   real dataset, and UI development.
 - **Libraries:** pandas, numpy, scikit-learn, Streamlit, Altair (bundled with
-  Streamlit) — see `requirements.txt` for the authoritative list.
+  Streamlit), requests, python-dotenv — see `requirements.txt` for the authoritative list.
 
 ---
 

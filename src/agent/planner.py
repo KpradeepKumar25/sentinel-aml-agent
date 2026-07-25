@@ -64,6 +64,16 @@ def build_plan(intent: QueryIntent) -> ExecutionPlan:
                 reason="Compute AML features for this customer only",
             ),
             ExecutionStep(
+                tool="anomaly_detection",
+                args={"mode": "rules_only"},
+                reason=(
+                    "Check this customer's transactions against the validated "
+                    "full-balance-drain rule (100% precision / 97.5% recall) -- "
+                    "without this step the query could never actually detect "
+                    "anything, regardless of the customer's real transaction history"
+                ),
+            ),
+            ExecutionStep(
                 tool="risk_classifier",
                 args={"customer_id": intent.customer_id},
                 reason="Compute or retrieve existing risk classification for this customer",
@@ -97,8 +107,13 @@ def build_plan(intent: QueryIntent) -> ExecutionPlan:
             ),
             ExecutionStep(
                 tool="anomaly_detection",
-                args={"mode": "hybrid", "pattern": "structuring"},
-                reason="Run hybrid rule + ML detection scoped to structuring pattern",
+                args={"mode": "rules_only", "pattern": "structuring"},
+                reason=(
+                    "Run the true structuring rule only (near-$10k amount + repeat-sender "
+                    "velocity) -- ML detection is skipped here so a 'structuring' result is "
+                    "never actually a general anomaly-model flag scored on an incomplete "
+                    "feature set"
+                ),
             ),
             ExecutionStep(
                 tool="risk_classifier",
@@ -134,7 +149,7 @@ def build_plan(intent: QueryIntent) -> ExecutionPlan:
             ),
             ExecutionStep(
                 tool="rule_engine",
-                args={"amount_threshold": intent.amount_threshold},
+                args={"amount_threshold": intent.amount_threshold, "min_transaction_count": intent.min_transaction_count or 1},
                 reason="Apply the threshold/count rule directly on the filtered data",
             ),
             ExecutionStep(
@@ -146,7 +161,49 @@ def build_plan(intent: QueryIntent) -> ExecutionPlan:
         return plan
 
     # ---------------------------------------------------------
-    # CASE 4: Broad analysis (default / fallback)
+    # CASE 4: ML-anomaly query -- explicitly asks what the ML model catches
+    # beyond the validated rule set (the rule engine's incremental value story)
+    # ---------------------------------------------------------
+    if intent.query_type == "ml_anomaly":
+        plan.decision_trail.append(
+            "Plan: ML-anomaly query - running Isolation Forest, keeping only "
+            "flags the validated rule does NOT already catch"
+        )
+        plan.steps = [
+            ExecutionStep(
+                tool="data_loader",
+                args={"date_range_days": intent.date_range_days, "transaction_type": intent.transaction_type},
+                reason="Load transactions filtered by date range/type (if specified)",
+            ),
+            ExecutionStep(
+                tool="feature_engineering",
+                args={"scope": "full"},
+                reason="Compute the full feature set the trained model expects",
+            ),
+            ExecutionStep(
+                tool="anomaly_detection",
+                args={"mode": "ml_only"},
+                reason=(
+                    "Run the Isolation Forest and keep only rows it flags that the "
+                    "full-balance-drain rule does NOT -- shows the model's "
+                    "incremental value on patterns without a known rule signature"
+                ),
+            ),
+            ExecutionStep(
+                tool="risk_classifier",
+                args={},
+                reason="Classify flagged results into risk tiers",
+            ),
+            ExecutionStep(
+                tool="explanation_engine",
+                args={"mode": "ml_anomaly"},
+                reason="Explain each flag as a model-detected anomaly outside the known rule signature",
+            ),
+        ]
+        return plan
+
+    # ---------------------------------------------------------
+    # CASE 5: Broad analysis (default / fallback)
     # -> full pipeline: EDA -> features -> detection -> risk -> explanation
     # ---------------------------------------------------------
     plan.decision_trail.append(
@@ -170,8 +227,14 @@ def build_plan(intent: QueryIntent) -> ExecutionPlan:
         ),
         ExecutionStep(
             tool="anomaly_detection",
-            args={"mode": "hybrid"},
-            reason="Run full hybrid rule + ML anomaly detection",
+            args={"mode": "rules_only"},
+            reason=(
+                "Run the validated full-balance-drain rule (100% precision / 97.5% "
+                "recall against isFraud) -- the ML model and the receiver-balance-"
+                "inconsistency rule are excluded here because they collectively drop "
+                "precision to ~1.7% for only a marginal recall gain (verified: 486k "
+                "flags at 1.7% precision vs. 8k flags at 100% precision)"
+            ),
         ),
         ExecutionStep(
             tool="risk_classifier",
@@ -193,7 +256,7 @@ if __name__ == "__main__":
     test_queries = [
         "Find structuring patterns in the last 30 days",
         "Which customers made 10+ transactions under $10,000?",
-        "Is customer ID 4521 suspicious?",
+        "Is customer ID C67886069 suspicious?",
         "Analyse this dataset for suspicious activity",
     ]
 

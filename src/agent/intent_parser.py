@@ -18,12 +18,13 @@ from typing import Optional
 class QueryIntent:
     """Structured representation of what the user is asking for."""
     raw_query: str
-    query_type: str                      # "broad_analysis" | "structuring" | "aggregation" | "single_entity"
+    query_type: str                      # "broad_analysis" | "structuring" | "aggregation" | "single_entity" | "ml_anomaly"
     target_pattern: Optional[str] = None # e.g. "structuring", "smurfing", "layering"
     customer_id: Optional[str] = None
     date_range_days: Optional[int] = None
     transaction_type: Optional[str] = None   # e.g. "TRANSFER", "CASH_OUT"
     amount_threshold: Optional[float] = None
+    min_transaction_count: Optional[int] = None
     needs_full_eda: bool = False
     needs_ml_detection: bool = True
     tags: list = field(default_factory=list)  # human-readable trail of what was detected, for the "why" output
@@ -32,12 +33,17 @@ class QueryIntent:
 # --- Keyword banks used for classification ---
 STRUCTURING_KEYWORDS = ["structuring", "smurf", "smurfing", "split", "layering"]
 SINGLE_ENTITY_PATTERNS = [
-    r"customer\s*(?:id)?\s*[:#]?\s*(\d+)",
-    r"account\s*(?:id)?\s*[:#]?\s*(\d+)",
-    r"\bid\s*(\d+)\b",
+    r"customer\s*(?:id)?\s*[:#]?\s*([A-Za-z]?\d+)",
+    r"account\s*(?:id)?\s*[:#]?\s*([A-Za-z]?\d+)",
+    r"\bid\s*([A-Za-z]?\d+)\b",
 ]
 AGGREGATION_KEYWORDS = ["how many", "which customers", "count", "average", "total", "made \\d+"]
 BROAD_KEYWORDS = ["analyse", "analyze", "scan", "review the dataset", "overall", "full report", "everything"]
+ML_ANOMALY_KEYWORDS = [
+    "rules might miss", "rule might miss", "rules would miss", "rules can't catch",
+    "rules can not catch", "without a known rule", "no known rule", "ml only",
+    "machine learning", "isolation forest", "anomalous transactions",
+]
 
 TRANSACTION_TYPES = ["TRANSFER", "CASH_OUT", "PAYMENT", "CASH_IN", "DEBIT"]
 
@@ -88,6 +94,14 @@ def _extract_amount_threshold(query: str) -> Optional[float]:
     return None
 
 
+def _extract_transaction_count(query: str) -> Optional[int]:
+    """Looks for phrases like '10+ transactions' or 'made 10 transactions'."""
+    match = re.search(r"(\d+)\s*\+?\s*transactions?", query, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def _extract_transaction_type(query: str) -> Optional[str]:
     for t in TRANSACTION_TYPES:
         if t.lower() in query.lower():
@@ -108,6 +122,7 @@ def parse_query(query: str) -> QueryIntent:
     date_range_days = _extract_date_range(query)
     transaction_type = _extract_transaction_type(query)
     amount_threshold = _extract_amount_threshold(query)
+    min_transaction_count = _extract_transaction_count(query)
 
     # --- Decide the primary query type (priority order matters) ---
 
@@ -150,6 +165,7 @@ def parse_query(query: str) -> QueryIntent:
             raw_query=query,
             query_type="aggregation",
             amount_threshold=amount_threshold,
+            min_transaction_count=min_transaction_count,
             transaction_type=transaction_type,
             date_range_days=date_range_days,
             needs_full_eda=False,
@@ -157,7 +173,24 @@ def parse_query(query: str) -> QueryIntent:
             tags=tags,
         )
 
-    # 4. Broad / full-dataset analysis (default / fallback)
+    # 4. ML-anomaly query -- explicitly asks for patterns without a known rule
+    #    signature, i.e. what the Isolation Forest can catch beyond the
+    #    validated rule set.
+    if any(kw in q_lower for kw in ML_ANOMALY_KEYWORDS):
+        tags.append("Detected ML-anomaly query (patterns without a known rule signature)")
+        if date_range_days:
+            tags.append(f"Applying date filter: last {date_range_days} days")
+        return QueryIntent(
+            raw_query=query,
+            query_type="ml_anomaly",
+            date_range_days=date_range_days,
+            transaction_type=transaction_type,
+            needs_full_eda=False,
+            needs_ml_detection=True,
+            tags=tags,
+        )
+
+    # 5. Broad / full-dataset analysis (default / fallback)
     tags.append("No specific entity or pattern detected - treating as broad analysis")
     return QueryIntent(
         raw_query=query,
@@ -175,7 +208,7 @@ if __name__ == "__main__":
     test_queries = [
         "Find structuring patterns in the last 30 days",
         "Which customers made 10+ transactions under $10,000?",
-        "Is customer ID 4521 suspicious?",
+        "Is customer ID C67886069 suspicious?",
         "Analyse this dataset for suspicious activity",
     ]
     for q in test_queries:

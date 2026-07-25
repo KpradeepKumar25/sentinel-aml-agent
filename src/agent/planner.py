@@ -153,6 +153,11 @@ def build_plan(intent: QueryIntent) -> ExecutionPlan:
                 reason="Apply the threshold/count rule directly on the filtered data",
             ),
             ExecutionStep(
+                tool="risk_classifier",
+                args={},
+                reason="Classify flagged results into risk tiers (still required even though ML is skipped)",
+            ),
+            ExecutionStep(
                 tool="explanation_engine",
                 args={"mode": "aggregation"},
                 reason="Summarize the aggregation result in plain English",

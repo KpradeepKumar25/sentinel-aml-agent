@@ -13,6 +13,7 @@ executes it end-to-end and returns a structured, judge-inspectable result.
 import sys
 import os
 import json
+from collections import Counter
 
 # Make src/tools and src/utils importable regardless of where this is run from
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -101,6 +102,11 @@ def run_agent(query: str) -> dict:
         "eda_summary": eda_summary,
         "total_rows_analyzed": int(len(df)) if df is not None else 0,
         "flagged_count": len(flagged_results),
+        # Breakdown across the FULL flagged set, computed before the display
+        # cap below -- so charts reflect the true distribution, not just
+        # whatever page of results happens to be shown.
+        "risk_level_breakdown": dict(Counter(r["risk_level"] for r in flagged_results)),
+        "action_breakdown": dict(Counter(r["recommended_action"] for r in flagged_results)),
         "flagged_results": flagged_results[:50],  # cap for readability in the UI/output
     }
 

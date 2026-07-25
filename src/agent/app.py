@@ -14,6 +14,8 @@ import sys
 import os
 import time
 import streamlit as st
+import pandas as pd
+import altair as alt
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _THIS_DIR)
@@ -21,6 +23,45 @@ sys.path.insert(0, os.path.join(_THIS_DIR, "..", "tools"))
 sys.path.insert(0, os.path.join(_THIS_DIR, "..", "utils"))
 
 from executor import run_agent
+
+
+# ============================================================
+# CHART HELPERS
+# ============================================================
+CHART_AXIS_COLOR = "#8B98A5"
+CHART_GRID_COLOR = "#22303C"
+RISK_ORDER = ["HIGH", "MEDIUM", "LOW", "NONE", "UNKNOWN"]
+# Reuses the exact status colors already defined for the risk badges above
+# (.risk-HIGH / .risk-MEDIUM / .risk-LOW / .risk-NONE) so the chart and the
+# badges never disagree about what a risk tier looks like.
+RISK_COLORS = {"HIGH": "#EF4444", "MEDIUM": "#F59E0B", "LOW": "#3B82F6", "NONE": "#4B5563", "UNKNOWN": "#4B5563"}
+
+
+def _bar_chart(df, x_field, y_field, x_title, y_title, sort_order, color=None,
+                color_field=None, color_scale=None, height=180):
+    """Thin rounded bars on a transparent background, styled to match the
+    app's dark theme. Tooltip-on-hover comes for free via Altair/Vega-Lite."""
+    encoding = dict(
+        x=alt.X(f"{x_field}:N", title=x_title, sort=sort_order,
+                axis=alt.Axis(labelColor=CHART_AXIS_COLOR, titleColor=CHART_AXIS_COLOR,
+                               domain=False, ticks=False, labelAngle=0)),
+        y=alt.Y(f"{y_field}:Q", title=y_title,
+                axis=alt.Axis(labelColor=CHART_AXIS_COLOR, titleColor=CHART_AXIS_COLOR,
+                               gridColor=CHART_GRID_COLOR, domain=False, ticks=False)),
+        tooltip=[alt.Tooltip(f"{x_field}:N", title=x_title), alt.Tooltip(f"{y_field}:Q", title=y_title, format=",")],
+    )
+    if color_field and color_scale:
+        encoding["color"] = alt.Color(f"{color_field}:N", scale=color_scale, legend=None)
+    else:
+        encoding["color"] = alt.value(color or "#2DD4BF")
+
+    return (
+        alt.Chart(df)
+        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=34)
+        .encode(**encoding)
+        .properties(height=height, background="transparent")
+        .configure_view(strokeWidth=0)
+    )
 
 
 # ============================================================
@@ -254,18 +295,19 @@ EXAMPLE_QUERIES = [
     "Is customer ID C67886069 suspicious?",
 ]
 
+EXAMPLE_PLACEHOLDER = "-- type to search examples --"
+
+
+def _apply_example_pick():
+    choice = st.session_state.example_picker
+    if choice != EXAMPLE_PLACEHOLDER:
+        st.session_state.query_text = choice
+
+
+if "query_text" not in st.session_state:
+    st.session_state.query_text = EXAMPLE_QUERIES[0]
+
 with st.sidebar:
-    st.markdown("#### Ask the agent")
-    st.caption("Type a query, or pick a verified example below.")
-
-    if "query_text" not in st.session_state:
-        st.session_state.query_text = EXAMPLE_QUERIES[0]
-
-    for q in EXAMPLE_QUERIES:
-        if st.button(q, key=f"ex_{q}", use_container_width=True):
-            st.session_state.query_text = q
-
-    st.markdown("---")
     st.markdown("#### Architecture")
     st.caption(
         "Intent Parser -> Planner -> Executor\n\n"
@@ -277,6 +319,18 @@ with st.sidebar:
 # ============================================================
 # MAIN — query box + run
 # ============================================================
+# The example picker lives here (not just the sidebar) because the sidebar
+# can be collapsed, which would otherwise hide the only 6 queries verified
+# to parse correctly -- free text beyond these is best-effort.
+st.caption("Pick one of the 6 verified examples, or type your own query below.")
+st.selectbox(
+    "Examples",
+    options=[EXAMPLE_PLACEHOLDER] + EXAMPLE_QUERIES,
+    key="example_picker",
+    on_change=_apply_example_pick,
+    label_visibility="collapsed",
+)
+
 query = st.text_input(
     "Query",
     value=st.session_state.query_text,
@@ -285,15 +339,27 @@ query = st.text_input(
 )
 run_clicked = st.button("Run agent", type="primary")
 
+# Compute + cache into session_state on click. Reading the cached result
+# below (rather than gating everything on `run_clicked`) is what lets other
+# widgets on the page -- pagination, expanders -- rerun the script without
+# wiping the display: `run_clicked` is only True on the exact rerun the
+# button itself triggered, and would be False again on every subsequent
+# rerun (e.g. clicking "Next" on the results pager).
 if run_clicked and query.strip():
     with st.spinner("Agent is parsing intent and building an execution plan..."):
         start = time.time()
         try:
-            result = run_agent(query)
+            computed_result = run_agent(query)
         except Exception as e:
             st.error(f"Agent execution failed: {e}")
             st.stop()
-        elapsed = time.time() - start
+        computed_elapsed = time.time() - start
+    st.session_state.last_result = computed_result
+    st.session_state.last_elapsed = computed_elapsed
+
+if "last_result" in st.session_state:
+    result = st.session_state.last_result
+    elapsed = st.session_state.last_elapsed
 
     # --- Top metrics row ---
     m1, m2, m3, m4 = st.columns(4)
@@ -352,15 +418,62 @@ if run_clicked and query.strip():
 
     # --- EDA summary, if present ---
     if result.get("eda_summary"):
-        sampling_note = result["eda_summary"].get("sampling_note")
+        eda = result["eda_summary"]
+        sampling_note = eda.get("sampling_note")
         if sampling_note:
             st.warning(f"**Sampling notice:** {sampling_note}", icon="⚠️")
-        with st.expander("EDA Summary", expanded=False):
-            st.json(result["eda_summary"])
+
+        type_counts = eda.get("transaction_type_counts")
+        if type_counts:
+            st.markdown("###### Transaction Type Breakdown")
+            t_order = sorted(type_counts, key=lambda k: -type_counts[k])
+            t_df = pd.DataFrame({"type": t_order, "count": [type_counts[t] for t in t_order]})
+            st.altair_chart(
+                _bar_chart(t_df, "type", "count", "Type", "Transactions", t_order),
+                use_container_width=True,
+            )
+
+        with st.expander("Full EDA Summary (JSON)", expanded=False):
+            st.json(eda)
 
     # --- Flagged results ---
     st.markdown("#### Flagged Results")
     flagged = result.get("flagged_results", [])
+
+    # Risk breakdown is computed backend-side across the FULL flagged set
+    # (before the 50-row display cap), so it reflects the true distribution
+    # even when only a page of results is shown below.
+    risk_breakdown = result.get("risk_level_breakdown", {})
+    if risk_breakdown:
+        r_order = [r for r in RISK_ORDER if r in risk_breakdown]
+        r_order += [r for r in risk_breakdown if r not in r_order]
+        r_df = pd.DataFrame({"risk_level": r_order, "count": [risk_breakdown[r] for r in r_order]})
+        st.markdown("###### Risk Level Breakdown (all flagged, not just the page shown below)")
+        st.altair_chart(
+            _bar_chart(
+                r_df, "risk_level", "count", "Risk level", "Count", r_order,
+                color_field="risk_level",
+                color_scale=alt.Scale(domain=list(RISK_COLORS.keys()), range=list(RISK_COLORS.values())),
+            ),
+            use_container_width=True,
+        )
+
+    if flagged:
+        with st.expander("View all shown results as a table", expanded=False):
+            table_df = pd.DataFrame([{
+                "Sender": r.get("sender"),
+                "Receiver": r.get("receiver"),
+                "Amount": r.get("amount", 0),
+                "Risk": r.get("risk_level", "UNKNOWN"),
+                "Action": r.get("recommended_action", ""),
+                "Explanation": r.get("explanation", ""),
+            } for r in flagged])
+            st.dataframe(
+                table_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={"Amount": st.column_config.NumberColumn(format="$%,.2f")},
+            )
 
     if not flagged:
         st.info(
@@ -369,7 +482,21 @@ if run_clicked and query.strip():
             "occur in the filtered data — not necessarily an empty/broken output."
         )
     else:
-        for r in flagged[:15]:
+        PAGE_SIZE = 15
+        returned_total = len(flagged)          # rows actually returned by the agent (capped at 50)
+        true_total = result.get("flagged_count", returned_total)  # true count before that cap
+        total_pages = max(1, -(-returned_total // PAGE_SIZE))  # ceil division
+
+        # Reset to page 1 whenever a different query is run
+        if st.session_state.get("last_query_run") != query:
+            st.session_state.results_page = 1
+            st.session_state.last_query_run = query
+
+        page = min(max(st.session_state.get("results_page", 1), 1), total_pages)
+        start = (page - 1) * PAGE_SIZE
+        end = start + PAGE_SIZE
+
+        for r in flagged[start:end]:
             risk = r.get("risk_level", "UNKNOWN")
             st.markdown(f"""
             <div class="result-card">
@@ -382,8 +509,23 @@ if run_clicked and query.strip():
             </div>
             """, unsafe_allow_html=True)
 
-        if len(flagged) > 15:
-            st.caption(f"Showing 15 of {len(flagged)} flagged results.")
+        nav1, nav2, nav3 = st.columns([1, 3, 1])
+        with nav1:
+            if st.button("← Previous", disabled=(page <= 1), use_container_width=True):
+                st.session_state.results_page = page - 1
+                st.rerun()
+        with nav2:
+            caption = f"Page {page} of {total_pages} — showing {start + 1}-{min(end, returned_total)} of {returned_total}"
+            if true_total > returned_total:
+                caption += f" (top {returned_total} of {true_total:,} total flagged)"
+            st.markdown(
+                f"<div style='text-align:center; padding-top:8px; color:var(--text-secondary); font-size:13px;'>{caption}</div>",
+                unsafe_allow_html=True,
+            )
+        with nav3:
+            if st.button("Next →", disabled=(page >= total_pages), use_container_width=True):
+                st.session_state.results_page = page + 1
+                st.rerun()
 
 else:
     st.markdown("""

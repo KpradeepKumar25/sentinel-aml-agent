@@ -2,6 +2,10 @@
 
 > An agentic AML (Anti-Money Laundering) system that dynamically plans its own investigation steps based on natural language queries — instead of running a fixed, one-size-fits-all pipeline.
 
+### 🔗 [**Live Demo →**](https://sentinel-aml-agent-jejvfgl9szp6yhaxgnwuez.streamlit.app/)
+
+No setup needed — pick one of the 6 verified example queries and click **Run agent**. See [Deployment](#deployment-streamlit-community-cloud) below for how it's hosted.
+
 ---
 
 ## 📌 Problem Statement
@@ -31,6 +35,8 @@ SentinelAML instead **routes each query differently**:
 | `"Find structuring patterns in the last 30 days"`        | Applies date filter → runs only the true structuring rule (near-$10k + repeat sender) → **skips full EDA and ML** |
 
 The agent shows its own reasoning trail, so a reviewer can see _what it decided to do, and why_ — not just a final number.
+
+> **Guardrail — queries with no AML/finance relevance are refused, not guessed at:** a query with no recognizable financial/suspicious-activity vocabulary at all (e.g. `"hi"`, small talk, unrelated topics) is classified as `unrelated` (`src/agent/intent_parser.py`) and the pipeline doesn't run — 0 rows loaded, 0 tools invoked, and the UI shows a plain "this doesn't look like a suspicious-activity query" message instead. Without this, an off-topic query would silently fall through to the broad-analysis default and return a real-looking 8,000+-row result for a query the agent never actually understood. Checked in both the regex parser and the optional LLM parser, so this holds regardless of which is active.
 
 > **Detection method per query type, and why:** broad-analysis and structuring queries use **rule-based detection only** — each has a validated rule signature (full-balance-drain: 100% precision / 97.5% recall; structuring: near-threshold amount + repeat-sender velocity) that's cheap, explainable, and outperforms adding the ML model or a weaker balance-inconsistency rule, both measured to collectively drop precision to ~1.7% for only a marginal recall gain. The **ML-anomaly query is where the Isolation Forest earns its place** — reserved for exactly the case rules can't cover: catching subtler, unknown patterns without a known signature. This is a deliberate precision/recall tradeoff per query type, not a blanket "always run everything" pipeline.
 
@@ -133,8 +139,10 @@ streamlit run app.py
 
 ## ☁️ Deployment (Streamlit Community Cloud)
 
+**Live at: [sentinel-aml-agent-jejvfgl9szp6yhaxgnwuez.streamlit.app](https://sentinel-aml-agent-jejvfgl9szp6yhaxgnwuez.streamlit.app/)**
+
 The app is a standard Streamlit app and deploys as a free, public website with
-no code changes beyond what's already in this repo:
+no code changes beyond what's already in this repo. Steps to redeploy your own copy:
 
 1. Push this repo to GitHub (public or private).
 2. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.

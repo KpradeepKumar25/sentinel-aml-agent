@@ -38,6 +38,7 @@ import risk_classifier
 import explanation_engine
 
 USE_LLM_PARSER = os.environ.get("USE_LLM_PARSER", "false").lower() == "true"
+USE_LLM_SAR_NARRATION = os.environ.get("USE_LLM_SAR_NARRATION", "false").lower() == "true"
 
 
 def get_intent(query: str):
@@ -56,6 +57,55 @@ def get_intent(query: str):
             print(f"[LLM parser fallback] {e} -- using rule-based parser instead")
             return parse_query(query)
     return parse_query(query)
+
+
+# Only the first page of results is narrated, not the full 50-row cap.
+# Measured against Groq's free-tier rate limit: firing 50 concurrent
+# requests triggered mass 429s (each one falls back safely, but most rows
+# silently reverted to the plain template, which defeats the point). 20
+# rows -- one page of 15 plus a small buffer -- stays reliably under the
+# limit so narration actually lands for what a user looks at first.
+SAR_NARRATION_LIMIT = 20
+
+
+def _enrich_with_sar_narration(results: list) -> list:
+    """
+    Optionally prepends an LLM-written narrative sentence to each result's
+    SAR box, for up to SAR_NARRATION_LIMIT rows -- never the full flagged
+    set -- so cost/latency/rate-limit exposure stays small no matter how
+    many rows a query flags. Runs in parallel since each row is an
+    independent API call.
+
+    Each row's narration is attempted independently and falls back silently
+    to the existing deterministic SAR text on any failure (missing key,
+    network error, timeout, rate limit) -- this can never break or blank
+    out a result.
+    """
+    if not USE_LLM_SAR_NARRATION or not results:
+        return results
+
+    try:
+        from llm_sar_narrator import narrate_sar
+    except Exception:
+        return results
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _narrate_one(r):
+        try:
+            sentence = narrate_sar(
+                r["sender"], r["receiver"], r["amount"], r["risk_level"], r["explanation"],
+            )
+            r["suggested_sar"] = sentence + "\n\n" + r["suggested_sar"]
+        except Exception as e:
+            print(f"[SAR narration fallback] {e} -- using deterministic SAR text instead")
+        return r
+
+    to_narrate = results[:SAR_NARRATION_LIMIT]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(_narrate_one, to_narrate))
+
+    return results
 
 
 def run_agent(query: str) -> dict:
@@ -133,7 +183,10 @@ def run_agent(query: str) -> dict:
         # whatever page of results happens to be shown.
         "risk_level_breakdown": dict(Counter(r["risk_level"] for r in flagged_results)),
         "action_breakdown": dict(Counter(r["recommended_action"] for r in flagged_results)),
-        "flagged_results": flagged_results[:50],  # cap for readability in the UI/output
+        # Cap for readability in the UI/output, THEN optionally narrate --
+        # narration must run after the cap so it only ever touches what's
+        # actually displayed (<=50 rows), never the full flagged set.
+        "flagged_results": _enrich_with_sar_narration(flagged_results[:50]),
     }
 
     return output

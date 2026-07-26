@@ -44,6 +44,20 @@ def build_plan(intent: QueryIntent) -> ExecutionPlan:
     )
 
     # ---------------------------------------------------------
+    # CASE 0: Query has no recognizable AML/finance vocabulary at all --
+    # don't run any tools. Running the full pipeline on an unrelated query
+    # (e.g. "hi") would silently produce a real-looking result and imply the
+    # agent understood something it didn't.
+    # ---------------------------------------------------------
+    if intent.query_type == "unrelated":
+        plan.decision_trail.append(
+            "Plan: query does not appear related to suspicious activity detection -- "
+            "skipping pipeline execution"
+        )
+        plan.steps = []
+        return plan
+
+    # ---------------------------------------------------------
     # CASE 1: Single-entity lookup
     # -> skip EDA, skip broad feature engineering, go straight to
     #    a targeted lookup + explanation for that one customer.

@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(_THIS_DIR, "..", "utils"))
 # no-op locally (no secrets.toml) and a no-op on the cloud unless the two
 # optional keys below were actually configured.
 try:
-    for _key in ("GROQ_API_KEY", "USE_LLM_PARSER"):
+    for _key in ("GROQ_API_KEY", "USE_LLM_PARSER", "USE_LLM_SAR_NARRATION"):
         if _key in st.secrets:
             os.environ[_key] = str(st.secrets[_key])
 except Exception:
@@ -422,8 +422,13 @@ def _apply_example_pick():
         st.session_state.query_text = choice
 
 
+def _clear_query():
+    st.session_state.query_text = ""
+    st.session_state.example_picker = EXAMPLE_PLACEHOLDER
+
+
 if "query_text" not in st.session_state:
-    st.session_state.query_text = EXAMPLE_QUERIES[0]
+    st.session_state.query_text = ""  # blank on first load -- no pre-filled query sitting there
 
 with st.sidebar:
     st.markdown("#### Architecture")
@@ -451,11 +456,15 @@ st.selectbox(
 
 query = st.text_input(
     "Query",
-    value=st.session_state.query_text,
+    key="query_text",
     label_visibility="collapsed",
     placeholder="e.g. Is customer ID C67886069 suspicious?",
 )
-run_clicked = st.button("Run agent", type="primary")
+col_run, col_clear = st.columns([3, 1])
+with col_run:
+    run_clicked = st.button("Run agent", type="primary", use_container_width=True)
+with col_clear:
+    st.button("Clear", on_click=_clear_query, use_container_width=True)
 
 # Compute + cache into session_state on click. Reading the cached result
 # below (rather than gating everything on `run_clicked`) is what lets other
@@ -478,6 +487,20 @@ if run_clicked and query.strip():
 if "last_result" in st.session_state:
     result = st.session_state.last_result
     elapsed = st.session_state.last_elapsed
+
+    # Query didn't match any known AML/finance pattern or vocabulary at all --
+    # say so plainly instead of rendering metrics/a pipeline/results for a
+    # query the agent didn't actually understand (see intent_parser.py CASE 5
+    # and planner.py CASE 0, which produce an empty plan for this case).
+    if result["query_type"] == "unrelated":
+        st.warning(
+            "This doesn't look like a suspicious-activity or AML query, so no "
+            "detection pipeline was run. Try asking about transactions, "
+            "customers, accounts, or a specific pattern -- see the example "
+            "queries above.",
+            icon="🤔",
+        )
+        st.stop()
 
     # --- Top metrics row ---
     m1, m2, m3, m4 = st.columns(4)

@@ -193,11 +193,16 @@ The agent responds with:
 
 ## 📝 Suggested SAR Report Draft (Feature Highlight)
 
-Beyond just flagging risk, SentinelAML drafts a short, human-readable **Suspicious Activity Report (SAR) summary** for each high-risk case — reframing the explanation engine's output into a compliance-ready format, e.g.:
+Beyond just flagging risk, SentinelAML drafts a short, human-readable **Suspicious Activity Report (SAR) summary** for each flagged case — reframing the explanation engine's output into a compliance-ready format. By default this is a deterministic template (`src/tools/explanation_engine.py`), e.g.:
 
-> _"Customer X moved funds via 5 transactions of $9,200–$9,800 within a 48-hour window, each just under the $10,000 reporting threshold — consistent with a structuring pattern. Recommended action: escalate for review."_
+```
+SUSPICIOUS ACTIVITY SUMMARY -- Risk: HIGH
+Party: C1889568678 -> C1906681343 | Amount: $1,086,227.44
+Basis for flag: Origin account balance fully drained by this transaction (amount matches prior balance, new balance is zero).
+Recommended action: report.
+```
 
-This mirrors how modern AML platforms use generative AI to automate case triage and draft SARs, at a scope appropriate for a 48-hour build.
+**Optional, disclosed enhancement:** setting `USE_LLM_SAR_NARRATION=true` (plus a Groq key) prepends one LLM-written narrative sentence above that same block — grounded strictly in that row's own party/amount/reason so it can rephrase but not invent facts, e.g. _"A transaction of $1,086,227.44 was sent from account C1889568678 to account C1906681343, resulting in the origin account being fully drained."_ The deterministic block underneath never changes, so the audit trail stays intact either way. Off by default; falls back silently to the plain template on any failure; only ever runs on the first ~20 displayed rows (not the full flagged set) to stay within Groq's free-tier rate limit — see `src/agent/llm_sar_narrator.py` and Disclosed AI/Tool Usage below.
 
 ---
 
@@ -222,6 +227,16 @@ This mirrors how modern AML platforms use generative AI to automate case triage 
   both an unset key and a deliberately invalid one. Verified end-to-end: with the LLM
   parser enabled, all 7 example queries produced identical routing decisions
   (`query_type`, `flagged_count`) to the regex parser.
+- **LLM API used for SAR narration (optional, off by default):** SAR drafts default to
+  a deterministic template (`src/tools/explanation_engine.py`) — no runtime LLM call is
+  made unless explicitly enabled. Setting `USE_LLM_SAR_NARRATION=true` and a
+  `GROQ_API_KEY` calls `src/agent/llm_sar_narrator.py` (same Groq model) to prepend one
+  narrative sentence to each SAR draft, strictly grounded in that row's own party/
+  amount/reason fields — it cannot introduce facts not already present in the data. The
+  deterministic block underneath is never altered. Strictly additive: falls back
+  silently to the plain template per-row on any failure, and is capped to the first ~20
+  displayed rows (not the full flagged set) — verified against Groq's free-tier rate
+  limit, which rejected most of 50 concurrent requests but accepted all of 20.
 - **Agentic coding assistance used:** Claude Code (Anthropic) — used throughout
   development for implementation, debugging, precision/recall validation against the
   real dataset, and UI development.

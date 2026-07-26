@@ -47,6 +47,20 @@ ML_ANOMALY_KEYWORDS = [
 
 TRANSACTION_TYPES = ["TRANSFER", "CASH_OUT", "PAYMENT", "CASH_IN", "DEBIT"]
 
+# Broad, deliberately generous AML/finance vocabulary check used only to catch
+# queries with NO domain signal at all (e.g. "hi", "what's the weather") before
+# they'd otherwise silently fall through to the broad-analysis default. Doesn't
+# need to be precise -- a query only needs to match ANY one of these to be
+# treated as in-scope; being over-inclusive here is the safe failure mode.
+DOMAIN_KEYWORDS = [
+    "transaction", "customer", "account", "suspicious", "fraud", "launder",
+    "money", "structuring", "smurf", "layering", "anomaly", "anomalous",
+    "pattern", "flag", "risk", "transfer", "payment", "analyse", "analyze",
+    "dataset", "data", "detect", "activity", "sar", "report", "threshold",
+    "amount", "bank", "financial", "finance", "wire", "deposit", "withdraw",
+    "cash", "balance", "sender", "receiver", "compliance", "aml",
+]
+
 
 def _extract_date_range(query: str) -> Optional[int]:
     """Looks for phrases like 'last 30 days', 'past 7 days', 'last week/month'."""
@@ -190,7 +204,21 @@ def parse_query(query: str) -> QueryIntent:
             tags=tags,
         )
 
-    # 5. Broad / full-dataset analysis (default / fallback)
+    # 5. No specific pattern matched AND no recognizable AML/finance vocabulary
+    #    at all -- rather than silently defaulting to a full broad-analysis run
+    #    (which would misleadingly imply the query was understood), say plainly
+    #    that it's out of scope instead of running the pipeline on it.
+    if not any(kw in q_lower for kw in DOMAIN_KEYWORDS):
+        tags.append("Query does not appear related to suspicious activity detection")
+        return QueryIntent(
+            raw_query=query,
+            query_type="unrelated",
+            needs_full_eda=False,
+            needs_ml_detection=False,
+            tags=tags,
+        )
+
+    # 6. Broad / full-dataset analysis (default / fallback)
     tags.append("No specific entity or pattern detected - treating as broad analysis")
     return QueryIntent(
         raw_query=query,

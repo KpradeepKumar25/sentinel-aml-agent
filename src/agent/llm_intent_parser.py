@@ -31,7 +31,7 @@ Given a natural language query, extract structured fields and respond with ONLY 
 no markdown, no explanation, matching exactly this schema:
 
 {
-  "query_type": one of ["single_entity", "structuring", "aggregation", "broad_analysis", "ml_anomaly"],
+  "query_type": one of ["single_entity", "structuring", "aggregation", "broad_analysis", "ml_anomaly", "unrelated"],
   "customer_id": string or null,
   "date_range_days": integer or null,
   "transaction_type": one of ["TRANSFER", "CASH_OUT", "PAYMENT", "CASH_IN", "DEBIT"] or null,
@@ -44,7 +44,11 @@ Rules for classification:
 - "structuring": query mentions structuring, smurfing, splitting, or layering patterns
 - "aggregation": query asks "which customers", "how many", or gives a count/threshold condition
 - "ml_anomaly": query explicitly asks for anomalies/patterns the rules might miss
-- "broad_analysis": general/default -- "analyse the dataset", no specific entity or pattern
+- "broad_analysis": general/default for genuinely on-topic requests -- "analyse the dataset",
+  no specific entity or pattern, but still about transactions/fraud/suspicious activity
+- "unrelated": query has nothing to do with financial transactions, fraud, or suspicious
+  activity at all (e.g. greetings, small talk, unrelated topics like weather or recipes).
+  Do NOT default ambiguous or off-topic input to "broad_analysis" -- use "unrelated" instead.
 
 Extract date ranges like "last 30 days" as date_range_days=30.
 Extract amounts like "$10,000" as amount_threshold=10000.
@@ -82,7 +86,7 @@ def parse_query_llm(query: str, timeout: int = 8) -> QueryIntent:
     content = response.json()["choices"][0]["message"]["content"]
     parsed = json.loads(content)  # raises if the model didn't return valid JSON
 
-    valid_types = {"single_entity", "structuring", "aggregation", "broad_analysis", "ml_anomaly"}
+    valid_types = {"single_entity", "structuring", "aggregation", "broad_analysis", "ml_anomaly", "unrelated"}
     if parsed.get("query_type") not in valid_types:
         raise ValueError(f"LLM returned unrecognized query_type: {parsed.get('query_type')}")
 
